@@ -1,0 +1,47 @@
+services:
+  # Docker-in-Docker (DinD) service: Provides a Docker daemon for Jenkins to run Docker commands securely
+  dind:
+    image: docker:dind # Official Docker-in-Docker image
+    container_name: dind # Name for the DinD container
+    privileged: true # Required for running Docker daemon inside a container (privileged mode)
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs # Enables TLS for secure communication between Jenkins and DinD
+    volumes:
+      - docker-certs-ca:/certs/ca # Stores CA certificates for Docker TLS
+      - docker-certs-client:/certs/client # Stores client certificates for Docker TLS
+      - docker-data:/var/lib/docker # Docker layer cache
+    networks:
+      jenkins:
+        aliases:
+          - docker # Allows Jenkins to connect to DinD at tcp://docker:2376
+
+  # Jenkins service: CI server that uses DinD to build images and run pipelines
+  jenkins:
+    image: jenkins/jenkins:lts-jdk11 # LTS Jenkins image with JDK 11
+    container_name: jenkins # Name for the Jenkins container
+    restart: unless-stopped # Restart policy for reliability
+    user: root # Run as root so Jenkins can access Docker
+    environment:
+      - DOCKER_HOST=tcp://docker:2376 # Jenkins connects to DinD via this host/port
+      - DOCKER_CERT_PATH=/certs/client # Path to Docker TLS client certificates
+      - DOCKER_TLS_VERIFY=1 # Enforces TLS verification for Docker commands
+    volumes:
+      - docker-certs-client:/certs/client:ro # Mount Docker client certs (read-only)
+      - jenkins-data:/var/jenkins_home # Jenkins home directory for persistent data
+    ports:
+      - "8081:8080" # Expose Jenkins web interface on host port 8081
+      - "50000:50000" # Expose Jenkins agent port
+    networks:
+      - jenkins # Connect to the custom Jenkins network
+
+# Named volumes for persistent storage
+volumes:
+  docker-certs-ca: # CA certificates for Docker TLS
+  docker-certs-client: # Client certificates for Docker TLS
+  jenkins-data: # Jenkins home directory (persistent Jenkins data)
+  docker-data: # Docker layer cache (persistent Docker image layers)
+
+# Custom bridge network for service isolation and communication
+networks:
+  jenkins:
+    driver: bridge
